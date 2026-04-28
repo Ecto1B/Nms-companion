@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NMS Companion Pro</title>
+
+<style>
+body { font-family: Arial; background:#0b0f1a; color:#e6f1ff; padding:15px; }
+h1 { color:#4fc3f7; }
+.card { background:#121a2b; padding:15px; margin-top:10px; border-radius:10px; }
+input, button, select {
+  padding:10px; margin:5px; font-size:16px; border-radius:6px; border:none;
+}
+button { background:#4fc3f7; color:#000; }
+ul { padding-left:20px; }
+</style>
+</head>
+
+<body>
+
+<h1>🚀 NMS Companion Pro</h1>
+
+<div class="card">
+  <h3>Add Resource</h3>
+  <input id="name" placeholder="Resource">
+  <input id="qty" type="number" placeholder="Qty">
+  <button onclick="add()">Add</button>
+</div>
+
+<div class="card">
+  <h3>Inventory</h3>
+  <ul id="list"></ul>
+</div>
+
+<div class="card">
+  <h3>Craft Planner</h3>
+  <select id="craftSelect"></select>
+  <input id="craftQty" type="number" placeholder="Amount">
+  <button onclick="planCraft()">Plan</button>
+  <div id="craftResult"></div>
+</div>
+
+<div class="card">
+  <h3>Backup</h3>
+  <button onclick="exportData()">Export</button>
+  <input type="file" onchange="importData(event)">
+</div>
+
+<script>
+
+// ===== DATA =====
+let inventory = JSON.parse(localStorage.getItem("nms_inv")) || [];
+
+// BASIC RECIPES (expandable)
+const recipes = {
+  "Carbon Nanotubes": { Carbon: 50 },
+  "Metal Plating": { Ferrite: 50 },
+  "Hermetic Seal": { CondensedCarbon: 30 },
+  "Warp Cell": {
+    "Antimatter": 1,
+    "Antimatter Housing": 1
+  },
+  "Antimatter Housing": {
+    Oxygen: 30,
+    Ferrite: 50
+  }
+};
+
+// ===== STORAGE =====
+function save() {
+  localStorage.setItem("nms_inv", JSON.stringify(inventory));
+}
+
+// ===== UI =====
+function render() {
+  list.innerHTML = "";
+  inventory.forEach((r,i)=>{
+    let li = document.createElement("li");
+    li.innerHTML = `${r.name} - ${r.qty}
+    <button onclick="del(${i})">❌</button>`;
+    list.appendChild(li);
+  });
+}
+
+// ===== INVENTORY =====
+function add() {
+  let name = document.getElementById("name").value;
+  let qty = parseInt(document.getElementById("qty").value);
+
+  if(!name||!qty) return;
+
+  let existing = inventory.find(r=>r.name===name);
+  if(existing) existing.qty += qty;
+  else inventory.push({name, qty});
+
+  save(); render();
+}
+
+function del(i){ inventory.splice(i,1); save(); render(); }
+
+// ===== CRAFT PLANNER =====
+function getQty(name) {
+  let item = inventory.find(r=>r.name===name);
+  return item ? item.qty : 0;
+}
+
+function calculate(item, amount, needed = {}) {
+  if(!recipes[item]) {
+    needed[item] = (needed[item] || 0) + amount;
+    return needed;
+  }
+
+  for(let mat in recipes[item]) {
+    calculate(mat, recipes[item][mat] * amount, needed);
+  }
+
+  return needed;
+}
+
+function planCraft() {
+  let item = craftSelect.value;
+  let amount = parseInt(craftQty.value);
+  if(!item||!amount) return;
+
+  let needed = calculate(item, amount);
+  let output = "<h4>Required:</h4><ul>";
+
+  for(let mat in needed) {
+    let have = getQty(mat);
+    let missing = Math.max(0, needed[mat] - have);
+
+    output += `<li>${mat}: need ${needed[mat]} | have ${have} | missing ${missing}</li>`;
+  }
+
+  output += "</ul>";
+  craftResult.innerHTML = output;
+}
+
+// ===== BACKUP =====
+function exportData() {
+  const blob = new Blob([JSON.stringify(inventory)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "nms_save.json";
+  a.click();
+}
+
+function importData(e) {
+  const file = e.target.files[0];
+  const reader = new FileReader();
+  reader.onload = () => {
+    inventory = JSON.parse(reader.result);
+    save(); render();
+  };
+  reader.readAsText(file);
+}
+
+// ===== INIT =====
+function initCraftList() {
+  for(let key in recipes) {
+    let opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = key;
+    craftSelect.appendChild(opt);
+  }
+}
+
+initCraftList();
+render();
+
+</script>
+
+</body>
+</html>
