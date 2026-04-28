@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NMS Exosuit Companion</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600&display=swap" rel="stylesheet">
+
+<style>
+
+/* ===== CORE ===== */
+body {
+  margin:0;
+  font-family:'Orbitron', sans-serif;
+  background: radial-gradient(circle at top, #0a0f1f, #000);
+  color:#7df9ff;
+}
+
+/* GRID */
+body::before {
+  content:"";
+  position:fixed;
+  inset:0;
+  background:
+    linear-gradient(#00eaff11 1px, transparent 1px),
+    linear-gradient(90deg, #00eaff11 1px, transparent 1px);
+  background-size:40px 40px;
+  pointer-events:none;
+}
+
+/* HEADER */
+header {
+  text-align:center;
+  padding:12px;
+  text-shadow:0 0 10px #00eaff;
+}
+
+/* NAV */
+.nav { display:flex; }
+.nav button {
+  flex:1;
+  background:none;
+  border:none;
+  color:#00eaff;
+  padding:12px;
+}
+.nav .active { border-bottom:2px solid #00eaff; }
+
+/* PANEL */
+.panel { display:none; padding:10px; }
+.panel.active { display:block; }
+
+/* CARD */
+.card {
+  background:rgba(0,10,25,0.85);
+  border:1px solid #00eaff33;
+  padding:12px;
+  margin:10px 0;
+  border-radius:10px;
+}
+
+/* INPUT */
+input, select, button {
+  width:100%;
+  margin:6px 0;
+  padding:10px;
+  background:transparent;
+  border:1px solid #00eaff55;
+  color:#7df9ff;
+}
+
+/* LIST */
+li {
+  border-bottom:1px solid #00eaff22;
+  padding:6px 0;
+}
+
+/* CANVAS */
+canvas {
+  width:100%;
+  height:500px;
+  background:rgba(0,0,0,0.5);
+  border-radius:10px;
+}
+
+/* LEGEND */
+.legend span {
+  display:inline-block;
+  margin-right:10px;
+}
+
+.green { color:#00ff9c; }
+.red { color:#ff4c4c; }
+.blue { color:#00eaff; }
+
+</style>
+</head>
+
+<body>
+
+<header>🚀 EXOSUIT SYSTEM</header>
+
+<div class="nav">
+<button onclick="tab(event,'profile')" class="active">PROFILE</button>
+<button onclick="tab(event,'inventory')">INV</button>
+<button onclick="tab(event,'craft')">CRAFT</button>
+</div>
+
+<!-- PROFILE -->
+<div id="profile" class="panel active">
+<div class="card">
+<input id="profileName" placeholder="New Profile">
+<button onclick="createProfile()">Create</button>
+<select id="profileSelect" onchange="loadProfile()"></select>
+</div>
+</div>
+
+<!-- INVENTORY -->
+<div id="inventory" class="panel">
+<div class="card">
+<select id="itemSelect"></select>
+<input id="qty" type="number" placeholder="Qty">
+<button onclick="addItem()">Add</button>
+</div>
+<div class="card">
+<ul id="invList"></ul>
+</div>
+</div>
+
+<!-- CRAFT -->
+<div id="craft" class="panel">
+<div class="card">
+<select id="craftItem"></select>
+<input id="craftQty" type="number" placeholder="Amount">
+<button onclick="renderTree()">Generate</button>
+</div>
+
+<div class="card legend">
+<span class="green">● Have</span>
+<span class="red">● Missing</span>
+<span class="blue">● Craftable</span>
+</div>
+
+<div class="card">
+<canvas id="canvas"></canvas>
+</div>
+</div>
+
+<script>
+
+// ===== DATA =====
+const items = {
+"Oxygen":{},
+"Ferrite":{},
+"Copper":{},
+"Chromatic Metal":{},
+"Condensed Carbon":{},
+"Warp Cell":{"Antimatter":1,"Antimatter Housing":1},
+"Antimatter Housing":{"Oxygen":30,"Ferrite":50},
+"Fusion Ignitor":{"Quantum Processor":1,"Superconductor":1},
+"Quantum Processor":{"Circuit Board":1,"Superconductor":1},
+"Circuit Board":{"Copper":100,"Chromatic Metal":200},
+"Superconductor":{"Condensed Carbon":200}
+};
+
+// ===== STATE =====
+let profiles = JSON.parse(localStorage.getItem("nms_profiles")) || {};
+let currentProfile = null;
+
+// ===== NAV =====
+function tab(e,id){
+document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active"));
+document.getElementById(id).classList.add("active");
+document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));
+e.target.classList.add("active");
+}
+
+// ===== PROFILE =====
+function createProfile(){
+let n=profileName.value;
+if(!n) return;
+profiles[n]={inventory:[]};
+saveProfiles(); updateProfiles();
+}
+
+function loadProfile(){
+currentProfile=profiles[profileSelect.value];
+renderInventory();
+}
+
+function saveProfiles(){
+localStorage.setItem("nms_profiles", JSON.stringify(profiles));
+}
+
+function updateProfiles(){
+profileSelect.innerHTML="";
+for(let p in profiles){
+let o=document.createElement("option");
+o.value=p;
+o.textContent=p;
+profileSelect.appendChild(o);
+}
+}
+
+// ===== INVENTORY =====
+function addItem(){
+let item=itemSelect.value;
+let qty=parseInt(qtyInput.value || qty.value);
+if(!currentProfile || !item || !qty) return;
+
+let f=currentProfile.inventory.find(i=>i.name===item);
+if(f) f.qty+=qty;
+else currentProfile.inventory.push({name:item, qty});
+
+saveProfiles(); renderInventory();
+}
+
+function renderInventory(){
+invList.innerHTML="";
+if(!currentProfile) return;
+currentProfile.inventory.forEach(i=>{
+let li=document.createElement("li");
+li.textContent=i.name+" - "+i.qty;
+invList.appendChild(li);
+});
+}
+
+// ===== GRAPH =====
+const canvas=document.getElementById("canvas");
+const ctx=canvas.getContext("2d");
+
+let scale=1, offsetX=0, offsetY=0;
+
+canvas.addEventListener("wheel", e=>{
+e.preventDefault();
+scale += e.deltaY * -0.001;
+scale=Math.max(0.5, Math.min(2, scale));
+draw();
+});
+
+let dragging=false, startX, startY;
+
+canvas.addEventListener("mousedown", e=>{
+dragging=true;
+startX=e.clientX-offsetX;
+startY=e.clientY-offsetY;
+});
+
+canvas.addEventListener("mousemove", e=>{
+if(dragging){
+offsetX=e.clientX-startX;
+offsetY=e.clientY-startY;
+draw();
+}
+});
+
+canvas.addEventListener("mouseup", ()=>dragging=false);
+
+// ===== HELPERS =====
+function count(name){
+let f=currentProfile?.inventory.find(i=>i.name===name);
+return f?f.qty:0;
+}
+
+function color(item, need){
+let have=count(item);
+if(have>=need) return "#00ff9c";
+if(items[item] && Object.keys(items[item]).length) return "#00eaff";
+return "#ff4c4c";
+}
+
+// ===== DRAW =====
+let lastTree=null;
+
+function draw(){
+ctx.setTransform(scale,0,0,scale,offsetX,offsetY);
+ctx.clearRect(-offsetX/scale,-offsetY/scale,canvas.width/scale,canvas.height/scale);
+
+function node(x,y,text,c){
+ctx.fillStyle="#001f2f";
+ctx.strokeStyle=c;
+ctx.lineWidth=2;
+ctx.beginPath();
+ctx.roundRect(x-60,y-20,120,40,10);
+ctx.fill(); ctx.stroke();
+
+ctx.fillStyle=c;
+ctx.textAlign="center";
+ctx.fillText(text,x,y+5);
+}
+
+function line(x1,y1,x2,y2){
+ctx.strokeStyle="#00eaff55";
+ctx.beginPath();
+ctx.moveTo(x1,y1);
+ctx.lineTo(x2,y2);
+ctx.stroke();
+}
+
+function build(item,qty,depth,x){
+let y=80+depth*120;
+let c=color(item,qty);
+
+node(x,y,item+" x"+qty,c);
+
+let r=items[item];
+if(!r || !Object.keys(r).length) return;
+
+let keys=Object.keys(r);
+let start=x-((keys.length-1)*140)/2;
+
+keys.forEach((m,i)=>{
+let cx=start+i*140;
+let cy=80+(depth+1)*120;
+
+line(x,y+20,cx,cy-20);
+build(m,r[m]*qty,depth+1,cx);
+});
+}
+
+if(lastTree) build(lastTree.item,lastTree.qty,0,canvas.width/2);
+}
+
+// ===== RENDER TREE =====
+function renderTree(){
+let item=craftItem.value;
+let qty=parseInt(craftQty.value);
+if(!item||!qty) return;
+
+lastTree={item,qty};
+offsetX=0; offsetY=0; scale=1;
+draw();
+}
+
+// ===== INIT =====
+function init(){
+for(let i in items){
+let o=document.createElement("option");
+o.value=i;
+o.textContent=i;
+itemSelect.appendChild(o);
+
+let o2=o.cloneNode(true);
+craftItem.appendChild(o2);
+}
+updateProfiles();
+}
+
+init();
+
+</script>
+
+</body>
+</html>
